@@ -12,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace iRacing_setups
 {
@@ -22,46 +23,58 @@ namespace iRacing_setups
 
         static void Main(string[] args)
         {
-            var configuration = ReadConfiguration();
-            var files = GetSetupFiles(configuration.SetupsPath);
-
-            string[] scopes = new string[] { DriveService.Scope.Drive, DriveService.Scope.DriveFile };
-
-            var credential = GoogleWebAuthorizationBroker.AuthorizeAsync(new ClientSecrets
+            try
             {
-                ClientId = configuration.ClientId,
-                ClientSecret = configuration.ClientSecret
-            }, scopes, Environment.UserName, CancellationToken.None, new FileDataStore("MyAppsToken")).Result;
+                var configuration = ReadConfiguration();
+                var files = GetSetupFiles(configuration.SetupsPath);
 
-            DriveService service = new DriveService(new BaseClientService.Initializer()
-            {
-                HttpClientInitializer = credential,
-                ApplicationName = "iRacing-setups",
-            });
-            service.HttpClient.Timeout = TimeSpan.FromMinutes(100);
+                string[] scopes = new string[] { DriveService.Scope.Drive, DriveService.Scope.DriveFile };
 
-            int cont = 0;
-            foreach (var file in files)
-            {
-                var fileName = Path.GetFileName(file);
-                SaveFileToBackup(file, configuration.SetupsPath, configuration.BackupPath);
-                if (CheckIfUpload(file, configuration.IncludeFolders))
+                var credential = GoogleWebAuthorizationBroker.AuthorizeAsync(new ClientSecrets
                 {
-                    var driveDirectoryId = GetDriveDirectoryId(service, file, configuration.SetupsPath);
-                    if (FindFileOrDirectory(service, fileName, driveDirectoryId) == null)
+                    ClientId = configuration.ClientId,
+                    ClientSecret = configuration.ClientSecret
+                }, scopes, Environment.UserName, CancellationToken.None, new FileDataStore("MyAppsToken")).Result;
+
+                DriveService service = new DriveService(new BaseClientService.Initializer()
+                {
+                    HttpClientInitializer = credential,
+                    ApplicationName = "iRacing-setups",
+                });
+                service.HttpClient.Timeout = TimeSpan.FromMinutes(100);
+
+                int cont = 0;
+                foreach (var file in files)
+                {
+                    var fileName = Path.GetFileName(file);
+                    SaveFileToBackup(file, configuration.SetupsPath, configuration.BackupPath);
+                    if (CheckIfUpload(file, configuration.IncludeFolders))
                     {
-                        UploadFile(service, file, driveDirectoryId);
-                        Console.WriteLine($"[{++cont}/{files.Count}] [UPLOADED] {fileName}");
+                        var driveDirectoryId = GetDriveDirectoryId(service, file, configuration.SetupsPath);
+                        if (FindFileOrDirectory(service, fileName, driveDirectoryId) == null)
+                        {
+                            UploadFile(service, file, driveDirectoryId);
+                            Console.WriteLine($"[{++cont}/{files.Count}] [UPLOADED] {fileName}");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"[{++cont}/{files.Count}] [ALREADY FOUND] {fileName}");
+                        }
                     }
                     else
                     {
-                        Console.WriteLine($"[{++cont}/{files.Count}] [ALREADY FOUND] {fileName}");
+                        Console.WriteLine($"[{++cont}/{files.Count}] [BACKUP ONLY] {fileName}");
                     }
                 }
-                else
-                {
-                    Console.WriteLine($"[{++cont}/{files.Count}] [BACKUP ONLY] {fileName}");
-                }
+
+                Console.WriteLine("Done!");
+                Console.ReadLine();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                Console.WriteLine(ex.StackTrace);
+                Console.ReadLine();
             }
         }
 
@@ -148,6 +161,29 @@ namespace iRacing_setups
 
             var gDriveFolder = response.Items.First();
             return gDriveFolder.Id;
+        }
+
+        public static List<DriveItemDTO> GetStoFiles(DriveService service)
+        {
+            var result = new List<DriveItemDTO>();
+
+            FilesResource.ListRequest request = service.Files.List();
+            request.Q = $"trashed=false and title contains '.sto' and parents in '{IRACING_FOLDER}'";
+            var response = request.Execute();
+
+            if (response.Items.Count == 0)
+                return result;
+
+            foreach(var item in response.Items)
+            {
+                result.Add(new DriveItemDTO
+                {
+                    Title = item.Title,
+                    Parent = item.Parents.First().Id
+                });
+            }
+
+            return result;
         }
 
         private static string GetMimeType(string fileName)
