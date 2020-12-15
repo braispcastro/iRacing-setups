@@ -44,11 +44,24 @@ namespace iRacing_setups
             foreach (var file in files)
             {
                 var fileName = Path.GetFileName(file);
-                Console.WriteLine($"[{++cont}/{files.Count}] {fileName}");
                 SaveFileToBackup(file, configuration.SetupsPath, configuration.BackupPath);
-                var driveDirectoryId = GetDriveDirectoryId(service, file, configuration.SetupsPath);
-                if (FindFileOrDirectory(service, fileName, driveDirectoryId) == null)
-                    UploadFile(service, file, driveDirectoryId);
+                if (CheckIfUpload(file, configuration.IncludeFolders))
+                {
+                    var driveDirectoryId = GetDriveDirectoryId(service, file, configuration.SetupsPath);
+                    if (FindFileOrDirectory(service, fileName, driveDirectoryId) == null)
+                    {
+                        UploadFile(service, file, driveDirectoryId);
+                        Console.WriteLine($"[{++cont}/{files.Count}] [UPLOADED] {fileName}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[{++cont}/{files.Count}] [ALREADY FOUND] {fileName}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"[{++cont}/{files.Count}] [BACKUP ONLY] {fileName}");
+                }
             }
         }
 
@@ -80,6 +93,17 @@ namespace iRacing_setups
             if (!Directory.Exists(newDir))
                 Directory.CreateDirectory(newDir);
             System.IO.File.Copy(file, newFile, true);
+        }
+
+        private static bool CheckIfUpload(string file, string includeFolders)
+        {
+            var includeArray = includeFolders.Split(',');
+            foreach (var item in includeArray)
+            {
+                if (file.Contains(item))
+                    return true;
+            }
+            return false;
         }
 
         private static Google.Apis.Drive.v2.Data.File UploadFile(DriveService service, string uploadFile, string parent)

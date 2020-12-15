@@ -21,5 +21,8 @@ namespace iRacing_setups.Model
 
         [JsonProperty("clientSecret")]
         public string ClientSecret { get; set; }
+
+        [JsonProperty("includeFolders")]
+        public string IncludeFolders { get; set; }
     }
 }
