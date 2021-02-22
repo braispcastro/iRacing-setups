@@ -1,65 +1,31 @@
-﻿using Google.Apis.Auth.OAuth2;
-using Google.Apis.Drive.v2;
-using Google.Apis.Drive.v2.Data;
-using Google.Apis.Services;
-using Google.Apis.Util.Store;
-using iRacing_setups.Model;
-using Microsoft.Win32;
+﻿using iRacing_setups.Model;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace iRacing_setups
 {
     internal class Program
     {
-        private const string IRACING_FOLDER = "1d_xYzbgp-M8S-xJRidPyk65Na1NYtNPN";
-        private const string IRACING_FOLDER_TEST = "1w43ytfea9ZzA5tQe-ZqCyPunEForkmv_";
-
-        static void Main(string[] args)
+        static void Main()
         {
             try
             {
                 var configuration = ReadConfiguration();
                 var files = GetSetupFiles(configuration.SetupsPath);
 
-                string[] scopes = new string[] { DriveService.Scope.Drive, DriveService.Scope.DriveFile };
-
-                var credential = GoogleWebAuthorizationBroker.AuthorizeAsync(new ClientSecrets
-                {
-                    ClientId = configuration.ClientId,
-                    ClientSecret = configuration.ClientSecret
-                }, scopes, Environment.UserName, CancellationToken.None, new FileDataStore("MyAppsToken")).Result;
-
-                DriveService service = new DriveService(new BaseClientService.Initializer()
-                {
-                    HttpClientInitializer = credential,
-                    ApplicationName = "iRacing-setups",
-                });
-                service.HttpClient.Timeout = TimeSpan.FromMinutes(100);
-
                 int cont = 0;
                 foreach (var file in files)
                 {
                     var fileName = Path.GetFileName(file);
-                    SaveFileToBackup(file, configuration.SetupsPath, configuration.BackupPath);
+                    SaveFile(file, configuration.SetupsPath, configuration.BackupPath);
                     if (CheckIfUpload(file, configuration.IncludeFolders))
                     {
-                        var driveDirectoryId = GetDriveDirectoryId(service, file, configuration.SetupsPath);
-                        if (FindFileOrDirectory(service, fileName, driveDirectoryId) == null)
-                        {
-                            UploadFile(service, file, driveDirectoryId);
-                            Console.WriteLine($"[{++cont}/{files.Count}] [UPLOADED] {fileName}");
-                        }
-                        else
-                        {
-                            Console.WriteLine($"[{++cont}/{files.Count}] [ALREADY FOUND] {fileName}");
-                        }
+                        SaveFile(file, configuration.SetupsPath, configuration.DrivePath);
+                        Console.WriteLine($"[{++cont}/{files.Count}] [FILE SYNCED] {fileName}");
                     }
                     else
                     {
@@ -84,10 +50,10 @@ namespace iRacing_setups
             var currentPath = Path.GetDirectoryName(location);
             var configPath = Path.Combine(currentPath, "configuration.json");
 
-            if (!System.IO.File.Exists(configPath))
+            if (!File.Exists(configPath))
                 throw new FileNotFoundException(configPath);
 
-            var file = System.IO.File.ReadAllText(configPath);
+            var file = File.ReadAllText(configPath);
             return JsonConvert.DeserializeObject<ConfigDTO>(file);
         }
 
@@ -99,13 +65,13 @@ namespace iRacing_setups
             return Directory.EnumerateFiles(path, "*.sto", SearchOption.AllDirectories).ToList();
         }
 
-        private static void SaveFileToBackup(string file, string setupPath, string backupPath)
+        private static void SaveFile(string file, string setupPath, string savePath)
         {
-            var newFile = file.Replace(setupPath, backupPath);
+            var newFile = file.Replace(setupPath, savePath);
             var newDir = Path.GetDirectoryName(newFile);
             if (!Directory.Exists(newDir))
                 Directory.CreateDirectory(newDir);
-            System.IO.File.Copy(file, newFile, true);
+            File.Copy(file, newFile, true);
         }
 
         private static bool CheckIfUpload(string file, string includeFolders)
@@ -117,106 +83,6 @@ namespace iRacing_setups
                     return true;
             }
             return false;
-        }
-
-        private static Google.Apis.Drive.v2.Data.File UploadFile(DriveService service, string uploadFile, string parent)
-        {
-            if (!System.IO.File.Exists(uploadFile))
-                throw new FileNotFoundException(uploadFile);
-
-            Google.Apis.Drive.v2.Data.File body = new Google.Apis.Drive.v2.Data.File();
-            body.Title = Path.GetFileName(uploadFile);
-            body.MimeType = GetMimeType(uploadFile);
-            body.Parents = new List<ParentReference>() { new ParentReference() { Id = parent } };
-
-            byte[] byteArray = System.IO.File.ReadAllBytes(uploadFile);
-            MemoryStream stream = new MemoryStream(byteArray);
-
-            FilesResource.InsertMediaUpload request = service.Files.Insert(body, stream, GetMimeType(uploadFile));
-            request.Upload();
-            return request.ResponseBody;
-        }
-
-        public static string CreateDirectory(DriveService service, string name, string parent)
-        {
-            var body = new Google.Apis.Drive.v2.Data.File();
-            body.Title = name;
-            body.MimeType = "application/vnd.google-apps.folder";
-            body.Parents = new List<ParentReference>() { new ParentReference() { Id = parent } };
-
-            FilesResource.InsertRequest request = service.Files.Insert(body);
-            var newDirectory = request.Execute();
-
-            return newDirectory.Id;
-        }
-
-        public static string FindFileOrDirectory(DriveService service, string name, string parent)
-        {
-            FilesResource.ListRequest request = service.Files.List();
-            request.Q = $"trashed=false and title='{name}' and parents in '{parent}'";
-            var response = request.Execute();
-
-            if (response.Items.Count == 0)
-                return null;
-
-            var gDriveFolder = response.Items.First();
-            return gDriveFolder.Id;
-        }
-
-        public static List<DriveItemDTO> GetStoFiles(DriveService service)
-        {
-            var result = new List<DriveItemDTO>();
-
-            FilesResource.ListRequest request = service.Files.List();
-            request.Q = $"trashed=false and title contains '.sto' and parents in '{IRACING_FOLDER}'";
-            var response = request.Execute();
-
-            if (response.Items.Count == 0)
-                return result;
-
-            foreach(var item in response.Items)
-            {
-                result.Add(new DriveItemDTO
-                {
-                    Title = item.Title,
-                    Parent = item.Parents.First().Id
-                });
-            }
-
-            return result;
-        }
-
-        private static string GetMimeType(string fileName)
-        {
-            string mimeType = "application/unknown";
-            string ext = Path.GetExtension(fileName).ToLower();
-            var regKey = Registry.ClassesRoot.OpenSubKey(ext);
-            if (regKey != null && regKey.GetValue("Content Type") != null)
-                mimeType = regKey.GetValue("Content Type").ToString();
-            return mimeType;
-        }
-
-        private static string GetDriveDirectoryId(DriveService service, string file, string setupsPath)
-        {
-            var dirName = Path.GetDirectoryName(file);
-            var folders = dirName.Replace($"{setupsPath}\\", "");
-            var arrayFolders = folders.Split("\\");
-            var folderId = IRACING_FOLDER;
-            foreach (var folder in arrayFolders)
-            {
-                folderId = FindOrCreateDirectory(service, folder, folderId);
-            }
-            return folderId;
-        }
-
-        private static string FindOrCreateDirectory(DriveService service, string name, string parent)
-        {
-            var directoryFound = FindFileOrDirectory(service, name, parent);
-
-            if (directoryFound != null)
-                return directoryFound;
-
-            return CreateDirectory(service, name, parent);
         }
     }
 }
