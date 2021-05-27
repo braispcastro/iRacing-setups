@@ -33,6 +33,7 @@ namespace iRacing_setups
                     }
                 }
 
+                Console.WriteLine($"Included folders: {configuration.IncludeFolders}");
                 Console.WriteLine("Done!");
                 Console.ReadLine();
             }
